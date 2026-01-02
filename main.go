@@ -130,14 +130,17 @@ func subscribeMessages(sub *redis.PubSub) {
 
 		// clients is a list of connections
 		for client := range clients {
+			mutex.Lock()
 			err := client.WriteMessage(websocket.TextMessage, []byte(msg.Payload))
 			if err != nil {
 				client.Close()
 				delete(clients, client)
+				mutex.Unlock()
+				log.Println("Error broadcasting message:", err)
+				return
 			}
+			mutex.Unlock()
 		}
-
-		// log.Println("Message:", msg.Payload)
 	}
 }
 
