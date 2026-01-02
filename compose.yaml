@@ -1,0 +1,61 @@
+x-app-build: &app-build
+  build:
+    context: .
+
+services:
+  lb:
+    image: haproxy:3.3
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./haproxy:/usr/local/etc/haproxy
+
+  lbchat1:
+    <<: *app-build
+    depends_on:
+      - redis
+    environment:
+      - APPID=1111
+      - REDIS_HOST=lbchat2
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+
+  lbchat2:
+    <<: *app-build
+    depends_on:
+      - redis
+    environment:
+      - APPID=2222
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+
+  lbchat3:
+    <<: *app-build
+    depends_on:
+      - redis
+    environment:
+      - APPID=3333
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+
+  lbchat4:
+    <<: *app-build
+    depends_on:
+      - redis
+    environment:
+      - APPID=4444
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+
+  redis:
+    image: redis:6.2.19-alpine
+    environment:
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
