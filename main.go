@@ -58,8 +58,10 @@ func main() {
 	http.HandleFunc("/ws", wsHandler)
 	go publishMessages(rdb)
 	go subscribeMessages(sub)
-	http.ListenAndServe(port, nil)
 	log.Println("Server is running on port", port)
+	if err := http.ListenAndServe(port, nil); err != nil {
+		log.Fatalf("Server failed: %v", err)
+	}
 }
 
 func wsHandler(w http.ResponseWriter, r *http.Request) {
@@ -96,8 +98,6 @@ func handleConnection(conn *websocket.Conn) {
 }
 
 func publishMessages(rdb *redis.Client) {
-	defer rdb.Close()
-
 	for {
 		// Grab the next message from the broadcast channel
 		message := <-broadcast
@@ -124,7 +124,7 @@ func subscribeMessages(sub *redis.PubSub) {
 		msg, err := sub.ReceiveMessage(ctx)
 
 		if err != nil {
-			log.Println("Error publishing message:", err)
+			log.Println("Error receiving message:", err)
 			return
 		}
 
