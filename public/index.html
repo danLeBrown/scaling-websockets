@@ -3,9 +3,381 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>WebSocket Chat</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        /* Custom scrollbar styling */
+        .message-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        .message-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        .message-container::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 3px;
+        }
+        .message-container::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
 </head>
-<body>
-    
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    <div id="app" class="container mx-auto max-w-4xl px-4 py-8">
+        <!-- Header -->
+        <div class="bg-white rounded-t-lg shadow-lg p-4 border-b border-gray-200">
+            <div class="flex items-center justify-between">
+                <h1 class="text-2xl font-bold text-gray-800">WebSocket Chat</h1>
+                <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2">
+                        <span 
+                            :class="[
+                                'w-2 h-2 rounded-full',
+                                connectionStatus === 'connected' ? 'bg-green-500' : 
+                                connectionStatus === 'connecting' ? 'bg-gray-400 animate-pulse' : 
+                                'bg-red-500 animate-pulse'
+                            ]"
+                        ></span>
+                        <span class="text-sm text-gray-600">{{ statusText }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Username Section -->
+        <div class="bg-white px-4 py-3 border-b border-gray-200">
+            <div v-if="!username" class="flex items-center gap-2">
+                <label for="username-input" class="text-sm font-medium text-gray-700">Username:</label>
+                <input 
+                    type="text" 
+                    id="username-input"
+                    v-model="usernameInput"
+                    @keyup.enter="setUsername"
+                    placeholder="Enter your username" 
+                    class="flex-1 px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    maxlength="20"
+                    ref="usernameInputRef"
+                />
+                <button 
+                    @click="setUsername"
+                    class="px-4 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 text-sm font-medium transition-colors"
+                >
+                    Set
+                </button>
+            </div>
+            <div v-else class="text-sm text-gray-600">
+                <span>Chatting as: <strong>{{ username }}</strong></span>
+            </div>
+        </div>
+
+        <!-- Message Container -->
+        <div 
+            ref="messagesContainer"
+            class="message-container bg-white h-96 overflow-y-auto p-4 space-y-3"
+        >
+            <!-- Welcome message -->
+            <div v-if="messages.length === 0" class="text-center text-gray-500 text-sm py-4">
+                <p>Welcome to the chat! Set your username and start messaging.</p>
+            </div>
+            
+            <!-- Messages -->
+            <div 
+                v-for="(msg, index) in messages" 
+                :key="index"
+                :class="[
+                    'message-item flex flex-col gap-1',
+                    msg.username === username ? 'items-end ml-auto max-w-[80%]' : 'items-start max-w-[80%]'
+                ]"
+            >
+                <div class="flex items-baseline gap-2">
+                    <span 
+                        :class="[
+                            'username-badge font-semibold text-sm',
+                            msg.username === username ? 'text-blue-600' : 'text-indigo-600'
+                        ]"
+                    >
+                        {{ msg.username }}
+                    </span>
+                    <span class="timestamp text-xs text-gray-500">{{ formatTimestamp(msg.timestamp) }}</span>
+                </div>
+                <div 
+                    :class="[
+                        'message-content text-gray-800 break-words px-3 py-2 rounded-lg',
+                        msg.username === username 
+                            ? 'bg-blue-100 rounded-tr-none' 
+                            : 'bg-gray-100 rounded-tl-none'
+                    ]"
+                >
+                    {{ msg.message }}
+                </div>
+            </div>
+        </div>
+
+        <!-- Message Input Form -->
+        <div class="bg-white rounded-b-lg shadow-lg p-4 border-t border-gray-200">
+            <form 
+                @submit.prevent="sendMessage"
+                class="flex gap-2"
+            >
+                <input 
+                    type="text" 
+                    v-model="messageInput"
+                    placeholder="Type your message..." 
+                    class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    :disabled="!username || connectionStatus !== 'connected'"
+                    autocomplete="off"
+                    ref="messageInputRef"
+                />
+                <button 
+                    type="submit"
+                    :disabled="!username || connectionStatus !== 'connected' || !messageInput.trim()"
+                    class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 font-medium transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                    Send
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted, onUnmounted, nextTick, watch } = Vue;
+
+        createApp({
+            setup() {
+                // Reactive state
+                const username = ref(localStorage.getItem('chat-username') || '');
+                const usernameInput = ref('');
+                const messageInput = ref('');
+                const messages = ref([]);
+                const connectionStatus = ref('connecting'); // connecting, connected, disconnected, error
+                const ws = ref(null);
+                const messagesContainer = ref(null);
+                const usernameInputRef = ref(null);
+                const messageInputRef = ref(null);
+
+                // Computed status text
+                const statusText = Vue.computed(() => {
+                    switch(connectionStatus.value) {
+                        case 'connected': return 'Connected';
+                        case 'connecting': return 'Connecting...';
+                        case 'disconnected': return 'Disconnected';
+                        case 'error': return 'Connection Error';
+                        default: return 'Unknown';
+                    }
+                });
+
+                // Load username from localStorage
+                if (username.value) {
+                    usernameInput.value = username.value;
+                }
+
+                // Set username
+                const setUsername = () => {
+                    const newUsername = usernameInput.value.trim();
+                    if (newUsername.length < 1) {
+                        alert('Please enter a username');
+                        return;
+                    }
+                    if (newUsername.length > 20) {
+                        alert('Username must be 20 characters or less');
+                        return;
+                    }
+                    username.value = newUsername;
+                    localStorage.setItem('chat-username', newUsername);
+                    // Focus message input after setting username
+                    nextTick(() => {
+                        if (messageInputRef.value) {
+                            messageInputRef.value.focus();
+                        }
+                    });
+                };
+
+                // Format timestamp
+                const formatTimestamp = (timestamp) => {
+                    const date = new Date(timestamp);
+                    const now = new Date();
+                    const diffMs = now - date;
+                    const diffMins = Math.floor(diffMs / 60000);
+                    const diffHours = Math.floor(diffMs / 3600000);
+                    const diffDays = Math.floor(diffMs / 86400000);
+
+                    if (diffMins < 1) {
+                        return 'just now';
+                    } else if (diffMins < 60) {
+                        return `${diffMins}m ago`;
+                    } else if (diffHours < 24) {
+                        return `${diffHours}h ago`;
+                    } else if (diffDays < 7) {
+                        return `${diffDays}d ago`;
+                    } else {
+                        return date.toLocaleDateString();
+                    }
+                };
+
+                // Auto-scroll to bottom
+                const scrollToBottom = () => {
+                    nextTick(() => {
+                        if (messagesContainer.value) {
+                            messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+                        }
+                    });
+                };
+
+                // Connect to WebSocket
+                const connectWebSocket = () => {
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const wsUrl = `${protocol}//${window.location.host}/ws`;
+                    
+                    connectionStatus.value = 'connecting';
+                    
+                    try {
+                        ws.value = new WebSocket(wsUrl);
+
+                        ws.value.onopen = () => {
+                            connectionStatus.value = 'connected';
+                            console.log('WebSocket connected');
+                        };
+
+                        ws.value.onmessage = (event) => {
+                            let messageData;
+                            
+                            try {
+                                // Try to parse as JSON
+                                messageData = JSON.parse(event.data);
+                            } catch (e) {
+                                // If not JSON, treat as plain text
+                                messageData = {
+                                    username: 'Unknown',
+                                    message: event.data,
+                                    timestamp: new Date().toISOString()
+                                };
+                            }
+
+                            // Ensure we have required fields
+                            if (!messageData.username) messageData.username = 'Unknown';
+                            if (!messageData.message) messageData.message = event.data;
+                            if (!messageData.timestamp) messageData.timestamp = new Date().toISOString();
+
+                            messages.value.push(messageData);
+                            scrollToBottom();
+                        };
+
+                        ws.value.onclose = () => {
+                            connectionStatus.value = 'disconnected';
+                            console.log('WebSocket disconnected');
+                            // Attempt to reconnect after 3 seconds
+                            setTimeout(() => {
+                                if (connectionStatus.value !== 'connected') {
+                                    connectWebSocket();
+                                }
+                            }, 3000);
+                        };
+
+                        ws.value.onerror = (error) => {
+                            connectionStatus.value = 'error';
+                            console.error('WebSocket error:', error);
+                        };
+
+                    } catch (error) {
+                        connectionStatus.value = 'error';
+                        console.error('Failed to create WebSocket:', error);
+                    }
+                };
+
+                // Send message
+                const sendMessage = () => {
+                    const message = messageInput.value.trim();
+                    if (!message) return;
+                    if (!username.value) {
+                        alert('Please set your username first');
+                        return;
+                    }
+
+                    if (!ws.value || ws.value.readyState !== WebSocket.OPEN) {
+                        alert('WebSocket is not connected. Please wait...');
+                        return;
+                    }
+
+                    // Create message object
+                    const messageData = {
+                        username: username.value,
+                        message: message,
+                        timestamp: new Date().toISOString()
+                    };
+
+                    // Send via WebSocket
+                    try {
+                        ws.value.send(JSON.stringify(messageData));
+                        console.log('Message sent:', messageData);
+                        messageInput.value = '';
+                        // Focus input again
+                        nextTick(() => {
+                            if (messageInputRef.value) {
+                                messageInputRef.value.focus();
+                            }
+                        });
+                    } catch (error) {
+                        console.error('Error sending message:', error);
+                        alert('Failed to send message. Please try again.');
+                    }
+                };
+
+                // Watch for username changes to enable messaging
+                watch(username, (newVal) => {
+                    if (newVal && messageInputRef.value) {
+                        nextTick(() => {
+                            messageInputRef.value.focus();
+                        });
+                    }
+                });
+
+                // Lifecycle hooks
+                onMounted(() => {
+                    // Connect to WebSocket
+                    connectWebSocket();
+                    
+                    // Focus appropriate input
+                    if (username.value) {
+                        nextTick(() => {
+                            if (messageInputRef.value) {
+                                messageInputRef.value.focus();
+                            }
+                        });
+                    } else {
+                        nextTick(() => {
+                            if (usernameInputRef.value) {
+                                usernameInputRef.value.focus();
+                            }
+                        });
+                    }
+                });
+
+                onUnmounted(() => {
+                    // Close WebSocket connection
+                    if (ws.value) {
+                        ws.value.close();
+                    }
+                });
+
+                return {
+                    username,
+                    usernameInput,
+                    messageInput,
+                    messages,
+                    connectionStatus,
+                    statusText,
+                    messagesContainer,
+                    usernameInputRef,
+                    messageInputRef,
+                    setUsername,
+                    sendMessage,
+                    formatTimestamp
+                };
+            }
+        }).mount('#app');
+    </script>
 </body>
 </html>
