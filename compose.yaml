@@ -16,7 +16,7 @@ services:
       - redis
     environment:
       - APPID=1111
-      - REDIS_HOST=lbchat2
+      - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=
       - REDIS_DB=0
