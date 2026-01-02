@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebSocket Chat</title>
+    <meta name="app-id" content="{{APPID}}">
+    <title>WebSocket Chat (App: {{APPID}})</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Vue 3 -->
@@ -30,7 +31,10 @@
         <!-- Header -->
         <div class="bg-white rounded-t-lg shadow-lg p-4 border-b border-gray-200">
             <div class="flex items-center justify-between">
-                <h1 class="text-2xl font-bold text-gray-800">WebSocket Chat</h1>
+                <div class="flex items-center gap-3">
+                    <h1 class="text-2xl font-bold text-gray-800">WebSocket Chat</h1>
+                    <span class="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-md">App ID: {{APPID}}</span>
+                </div>
                 <div class="flex items-center gap-2">
                     <div class="flex items-center gap-2">
                         <span 
